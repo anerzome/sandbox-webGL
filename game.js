@@ -12,13 +12,6 @@ const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.rotation.x = Math.PI / 2;
 scene.add(ground);
 
-// Create a simple cube for the player
-const playerGeometry = new THREE.BoxGeometry(1, 2, 1);
-const playerMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
-const player = new THREE.Mesh(playerGeometry, playerMaterial);
-player.position.set(0, 1, 0);
-scene.add(player);
-
 // Set up variables for player movement and rotation
 const moveSpeed = 0.1;
 let moveForward = false;
@@ -29,6 +22,11 @@ let canJump = false;
 
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
+
+// Player object (invisible)
+const player = new THREE.Object3D();
+player.position.set(0, 1, 0);
+scene.add(player);
 
 // Set up pointer lock
 const blocker = document.getElementById('blocker');
@@ -206,9 +204,10 @@ function animate() {
             canJump = true;
         }
 
-        // Update camera position to match player
+        // Update camera position and rotation to match player
         camera.position.copy(player.position);
         camera.position.y += 1.5; // Offset camera above player's head
+        camera.rotation.y = player.rotation.y;
     }
 
     renderer.render(scene, camera);
