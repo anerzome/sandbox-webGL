@@ -21,12 +21,18 @@ let moveRight = false;
 let canJump = false;
 
 const velocity = new THREE.Vector3();
-const direction = new THREE.Vector3();
+let direction = 0; // 0: North, 1: East, 2: South, 3: West
 
 // Player object (invisible)
 const player = new THREE.Object3D();
 player.position.set(0, 1, 0);
 scene.add(player);
+
+// Camera pitch object
+const cameraPitch = new THREE.Object3D();
+player.add(cameraPitch);
+cameraPitch.position.y = 1.5; // Eye level
+cameraPitch.add(camera);
 
 // Set up pointer lock
 const blocker = document.getElementById('blocker');
@@ -65,9 +71,16 @@ function onMouseMove(event) {
         const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
         const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 
+        // Rotate player (and camera) horizontally
         player.rotation.y -= movementX * 0.002;
-        camera.rotation.x -= movementY * 0.002;
-        camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+
+        // Rotate camera vertically
+        cameraPitch.rotation.x -= movementY * 0.002;
+        cameraPitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraPitch.rotation.x));
+
+        // Update direction based on player rotation
+        direction = Math.round(player.rotation.y / (Math.PI / 2)) % 4;
+        if (direction < 0) direction += 4;
     }
 }
 
@@ -126,7 +139,7 @@ function createBlock(x, y, z, color) {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
     const material = new THREE.MeshBasicMaterial({ color: color });
     const block = new THREE.Mesh(geometry, material);
-    block.position.set(x, y, z);
+    block.position.set(Math.round(x), Math.round(y), Math.round(z));
     scene.add(block);
     return block;
 }
@@ -173,23 +186,23 @@ function animate() {
         velocity.x = 0;
         velocity.z = 0;
 
-        // Calculate movement direction
-        direction.z = Number(moveForward) - Number(moveBackward);
-        direction.x = Number(moveRight) - Number(moveLeft);
-        direction.normalize();
-
-        // Apply movement based on player's rotation
-        if (moveForward || moveBackward) {
-            velocity.z -= direction.z * moveSpeed;
+        // Apply movement based on direction
+        if (moveForward) {
+            velocity.z -= moveSpeed * Math.cos(player.rotation.y);
+            velocity.x -= moveSpeed * Math.sin(player.rotation.y);
         }
-        if (moveLeft || moveRight) {
-            velocity.x -= direction.x * moveSpeed;
+        if (moveBackward) {
+            velocity.z += moveSpeed * Math.cos(player.rotation.y);
+            velocity.x += moveSpeed * Math.sin(player.rotation.y);
         }
-
-        // Rotate velocity vector based on player's y-rotation
-        const rotationMatrix = new THREE.Matrix4();
-        rotationMatrix.makeRotationY(player.rotation.y);
-        velocity.applyMatrix4(rotationMatrix);
+        if (moveLeft) {
+            velocity.x -= moveSpeed * Math.cos(player.rotation.y);
+            velocity.z += moveSpeed * Math.sin(player.rotation.y);
+        }
+        if (moveRight) {
+            velocity.x += moveSpeed * Math.cos(player.rotation.y);
+            velocity.z -= moveSpeed * Math.sin(player.rotation.y);
+        }
 
         // Apply gravity
         velocity.y -= 9.8 * 0.016; // Simplified gravity
@@ -203,11 +216,6 @@ function animate() {
             player.position.y = 1;
             canJump = true;
         }
-
-        // Update camera position and rotation to match player
-        camera.position.copy(player.position);
-        camera.position.y += 1.5; // Offset camera above player's head
-        camera.rotation.y = player.rotation.y;
     }
 
     renderer.render(scene, camera);
