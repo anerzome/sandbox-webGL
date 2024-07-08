@@ -21,11 +21,11 @@ let moveRight = false;
 let canJump = false;
 
 const velocity = new THREE.Vector3();
-let direction = 0; // 0: North, 1: East, 2: South, 3: West
+const playerSize = new THREE.Vector3(0.5, 1.8, 0.5); // Player collision box size
 
 // Player object (invisible)
 const player = new THREE.Object3D();
-player.position.set(0, 1, 0);
+player.position.set(0, 2, 0);
 scene.add(player);
 
 // Camera pitch object
@@ -77,10 +77,6 @@ function onMouseMove(event) {
         // Rotate camera vertically
         cameraPitch.rotation.x -= movementY * 0.002;
         cameraPitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraPitch.rotation.x));
-
-        // Update direction based on player rotation
-        direction = Math.round(player.rotation.y / (Math.PI / 2)) % 4;
-        if (direction < 0) direction += 4;
     }
 }
 
@@ -134,10 +130,15 @@ const onKeyUp = function (event) {
 document.addEventListener('keydown', onKeyDown);
 document.addEventListener('keyup', onKeyUp);
 
+// Function to create a random color
+function getRandomColor() {
+    return Math.floor(Math.random()*16777215);
+}
+
 // Function to create a block
-function createBlock(x, y, z, color) {
+function createBlock(x, y, z) {
     const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshBasicMaterial({ color: color });
+    const material = new THREE.MeshBasicMaterial({ color: getRandomColor() });
     const block = new THREE.Mesh(geometry, material);
     block.position.set(Math.round(x), Math.round(y), Math.round(z));
     scene.add(block);
@@ -163,7 +164,7 @@ document.addEventListener('click', (event) => {
             const intersect = intersects[0];
             if (event.button === 0) { // Left click to place block
                 const position = intersect.point.add(intersect.face.normal);
-                createBlock(position.x, position.y, position.z, 0xff0000);
+                createBlock(position.x, position.y, position.z);
             } else if (event.button === 2) { // Right click to remove block
                 removeBlock(intersect.object);
             }
@@ -173,6 +174,31 @@ document.addEventListener('click', (event) => {
 
 // Prevent context menu on right-click
 document.addEventListener('contextmenu', (event) => event.preventDefault());
+
+// Function to check collision with blocks
+function checkBlockCollision(position) {
+    const playerMin = new THREE.Vector3(
+        position.x - playerSize.x / 2,
+        position.y,
+        position.z - playerSize.z / 2
+    );
+    const playerMax = new THREE.Vector3(
+        position.x + playerSize.x / 2,
+        position.y + playerSize.y,
+        position.z + playerSize.z / 2
+    );
+
+    for (let i = 0; i < scene.children.length; i++) {
+        const object = scene.children[i];
+        if (object.isMesh && object !== ground) {
+            const box = new THREE.Box3().setFromObject(object);
+            if (box.intersectsBox(new THREE.Box3(playerMin, playerMax))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 // Animation loop
 function animate() {
@@ -207,13 +233,18 @@ function animate() {
         // Apply gravity
         velocity.y -= 9.8 * 0.016; // Simplified gravity
 
-        // Move the player
-        player.position.add(velocity);
+        // Check collisions and move the player
+        const newPosition = player.position.clone().add(velocity);
+        if (!checkBlockCollision(newPosition)) {
+            player.position.copy(newPosition);
+        } else {
+            velocity.y = 0; // Stop vertical movement if there's a collision
+        }
 
         // Ground check and jump reset
-        if (player.position.y < 1) {
+        if (player.position.y < 2) {
             velocity.y = 0;
-            player.position.y = 1;
+            player.position.y = 2;
             canJump = true;
         }
     }
