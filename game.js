@@ -5,12 +5,10 @@ const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.getElementById('game-container').appendChild(renderer.domElement);
 
-// Create a basic ground plane
-const groundGeometry = new THREE.PlaneGeometry(100, 100);
-const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
-const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-ground.rotation.x = Math.PI / 2;
-scene.add(ground);
+// World generation parameters
+const worldWidth = 50;
+const worldDepth = 50;
+const worldHeight = 20;
 
 // Set up variables for player movement and rotation
 const moveSpeed = 0.1;
@@ -25,7 +23,6 @@ const playerSize = new THREE.Vector3(0.5, 1.8, 0.5); // Player collision box siz
 
 // Player object (invisible)
 const player = new THREE.Object3D();
-player.position.set(0, 2, 0);
 scene.add(player);
 
 // Camera pitch object
@@ -33,6 +30,70 @@ const cameraPitch = new THREE.Object3D();
 player.add(cameraPitch);
 cameraPitch.position.y = 1.5; // Eye level
 cameraPitch.add(camera);
+
+// Function to create a random color
+function getRandomColor() {
+    return Math.floor(Math.random() * 16777215);
+}
+
+// Function to create a block with a grid
+function createBlock(x, y, z, color = getRandomColor()) {
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial({ color: color });
+    const edges = new THREE.EdgesGeometry(geometry);
+    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+
+    const block = new THREE.Mesh(geometry, material);
+    block.add(line); // Add grid lines to the block
+    block.position.set(x, y, z);
+    scene.add(block);
+    return block;
+}
+
+// Function to remove a block
+function removeBlock(block) {
+    scene.remove(block);
+}
+
+// Function to generate a simple heightmap using Perlin noise
+function generateHeightmap(width, depth) {
+    const simplex = new SimplexNoise();
+    const data = new Float32Array(width * depth);
+    for (let x = 0; x < width; x++) {
+        for (let z = 0; z < depth; z++) {
+            const value = (simplex.noise2D(x / 50, z / 50) + 1) / 2; // Perlin noise value
+            data[x + z * width] = Math.floor(value * worldHeight);
+        }
+    }
+    return data;
+}
+
+// Function to generate the world
+function generateWorld() {
+    const heightmap = generateHeightmap(worldWidth, worldDepth);
+    for (let x = 0; x < worldWidth; x++) {
+        for (let z = 0; z < worldDepth; z++) {
+            const height = heightmap[x + z * worldWidth];
+            for (let y = 0; y <= height; y++) {
+                createBlock(x, y, z, getTerrainColor(y));
+            }
+        }
+    }
+    // Set player position after world generation
+    player.position.set(worldWidth / 2, worldHeight + 2, worldDepth / 2);
+}
+
+// Function to get terrain color based on height
+function getTerrainColor(height) {
+    if (height < 1) return 0x0000FF; // Water
+    if (height < 2) return 0xFFFF00; // Sand
+    if (height < 3) return 0x00FF00; // Grass
+    if (height < 4) return 0x808080; // Stone
+    return 0xFFFFFF; // Snow
+}
+
+// Generate the world
+generateWorld();
 
 // Set up pointer lock
 const blocker = document.getElementById('blocker');
@@ -47,13 +108,9 @@ function startGame() {
 instructions.addEventListener('click', startGame);
 
 document.addEventListener('pointerlockchange', lockChangeAlert, false);
-document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
-document.addEventListener('webkitpointerlockchange', lockChangeAlert, false);
 
 function lockChangeAlert() {
-    if (document.pointerLockElement === renderer.domElement ||
-        document.mozPointerLockElement === renderer.domElement ||
-        document.webkitPointerLockElement === renderer.domElement) {
+    if (document.pointerLockElement === renderer.domElement) {
         console.log('Pointer lock active');
         blocker.style.display = 'none';
     } else {
@@ -71,10 +128,7 @@ function onMouseMove(event) {
         const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
         const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
 
-        // Rotate player (and camera) horizontally
         player.rotation.y -= movementX * 0.002;
-
-        // Rotate camera vertically
         cameraPitch.rotation.x -= movementY * 0.002;
         cameraPitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraPitch.rotation.x));
     }
@@ -100,7 +154,7 @@ const onKeyDown = function (event) {
             moveRight = true;
             break;
         case 'Space':
-            if (canJump === true) velocity.y += 5;
+            if (canJump === true) velocity.y += 1.5; // Adjusted jump height
             canJump = false;
             break;
     }
@@ -130,26 +184,6 @@ const onKeyUp = function (event) {
 document.addEventListener('keydown', onKeyDown);
 document.addEventListener('keyup', onKeyUp);
 
-// Function to create a random color
-function getRandomColor() {
-    return Math.floor(Math.random()*16777215);
-}
-
-// Function to create a block
-function createBlock(x, y, z) {
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshBasicMaterial({ color: getRandomColor() });
-    const block = new THREE.Mesh(geometry, material);
-    block.position.set(Math.round(x), Math.round(y), Math.round(z));
-    scene.add(block);
-    return block;
-}
-
-// Function to remove a block
-function removeBlock(block) {
-    scene.remove(block);
-}
-
 // Set up raycaster for block selection
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -157,44 +191,42 @@ const mouse = new THREE.Vector2();
 // Handle mouse click for placing/removing blocks
 document.addEventListener('click', (event) => {
     if (document.pointerLockElement === renderer.domElement) {
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        mouse.x = 0;
+        mouse.y = 0;
+        raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObjects(scene.children);
-        
         if (intersects.length > 0) {
             const intersect = intersects[0];
             if (event.button === 0) { // Left click to place block
-                const position = intersect.point.add(intersect.face.normal);
-                createBlock(position.x, position.y, position.z);
+                const newBlockPosition = intersect.point.add(intersect.face.normal).floor().addScalar(0.5);
+                if (!checkCollision(newBlockPosition)) {
+                    createBlock(newBlockPosition.x, newBlockPosition.y, newBlockPosition.z);
+                }
             } else if (event.button === 2) { // Right click to remove block
-                removeBlock(intersect.object);
+                if (intersect.object !== player) {
+                    removeBlock(intersect.object);
+                }
             }
         }
     }
 });
 
-// Prevent context menu on right-click
-document.addEventListener('contextmenu', (event) => event.preventDefault());
-
 // Function to check collision with blocks
-function checkBlockCollision(position) {
-    const playerMin = new THREE.Vector3(
-        position.x - playerSize.x / 2,
-        position.y,
-        position.z - playerSize.z / 2
-    );
-    const playerMax = new THREE.Vector3(
-        position.x + playerSize.x / 2,
-        position.y + playerSize.y,
-        position.z + playerSize.z / 2
-    );
-
-    for (let i = 0; i < scene.children.length; i++) {
-        const object = scene.children[i];
-        if (object.isMesh && object !== ground) {
-            const box = new THREE.Box3().setFromObject(object);
-            if (box.intersectsBox(new THREE.Box3(playerMin, playerMax))) {
-                return true;
-            }
+function checkCollision(position) {
+    const min = position.clone().sub(playerSize.clone().multiplyScalar(0.5));
+    const max = position.clone().add(playerSize.clone().multiplyScalar(0.5));
+    
+    const allBlocks = scene.children.filter(child => child.isMesh);
+    
+    for (let i = 0; i < allBlocks.length; i++) {
+        const block = allBlocks[i];
+        const blockMin = block.position.clone().subScalar(0.5);
+        const blockMax = block.position.clone().addScalar(0.5);
+        
+        if (min.x < blockMax.x && max.x > blockMin.x &&
+            min.y < blockMax.y && max.y > blockMin.y &&
+            min.z < blockMax.z && max.z > blockMin.z) {
+            return true;
         }
     }
     return false;
@@ -204,59 +236,75 @@ function checkBlockCollision(position) {
 function animate() {
     requestAnimationFrame(animate);
 
-    if (document.pointerLockElement === renderer.domElement ||
-        document.mozPointerLockElement === renderer.domElement ||
-        document.webkitPointerLockElement === renderer.domElement) {
+    if (document.pointerLockElement === renderer.domElement) {
+        velocity.x -= velocity.x * 10.0 * 0.01;
+        velocity.z -= velocity.z * 10.0 * 0.01;
+        velocity.y -= 9.8 * 0.01; // gravity
 
-        // Reset velocity
-        velocity.x = 0;
-        velocity.z = 0;
+        if (moveForward) velocity.z -= moveSpeed;
+        if (moveBackward) velocity.z += moveSpeed;
+        if (moveLeft) velocity.x -= moveSpeed;
+        if (moveRight) velocity.x += moveSpeed;
 
-        // Apply movement based on direction
-        if (moveForward) {
-            velocity.z -= moveSpeed * Math.cos(player.rotation.y);
-            velocity.x -= moveSpeed * Math.sin(player.rotation.y);
-        }
-        if (moveBackward) {
-            velocity.z += moveSpeed * Math.cos(player.rotation.y);
-            velocity.x += moveSpeed * Math.sin(player.rotation.y);
-        }
-        if (moveLeft) {
-            velocity.x -= moveSpeed * Math.cos(player.rotation.y);
-            velocity.z += moveSpeed * Math.sin(player.rotation.y);
-        }
-        if (moveRight) {
-            velocity.x += moveSpeed * Math.cos(player.rotation.y);
-            velocity.z -= moveSpeed * Math.sin(player.rotation.y);
-        }
+        // Determine the direction the player is facing
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(player.quaternion); // Corrected forward direction
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(player.quaternion);
 
-        // Apply gravity
-        velocity.y -= 9.8 * 0.016; // Simplified gravity
+        // Apply movement in the direction the player is facing
+        const newPosition = player.position.clone()
+            .add(forward.multiplyScalar((velocity.z * moveSpeed)))
+            .add(right.multiplyScalar((velocity.x * moveSpeed)))
+            .add(new THREE.Vector3(0, velocity.y, 0));
 
-        // Check collisions and move the player
-        const newPosition = player.position.clone().add(velocity);
-        if (!checkBlockCollision(newPosition)) {
+        if (!checkCollision(newPosition)) {
             player.position.copy(newPosition);
         } else {
-            velocity.y = 0; // Stop vertical movement if there's a collision
-        }
-
-        // Ground check and jump reset
-        if (player.position.y < 2) {
-            velocity.y = 0;
-            player.position.y = 2;
+            velocity.y = Math.max(0, velocity.y); // Stop downward velocity on collision
             canJump = true;
         }
+
+        player.position.y = Math.max(player.position.y, 1.5); // Prevent falling below ground
     }
 
     renderer.render(scene, camera);
 }
 
-animate();
-
-// Handle window resize
+// Handle window resizing
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+animate();
+
+// Multiplayer Support
+const socket = new WebSocket('ws://localhost:8080');
+
+socket.onopen = () => {
+    console.log('Connected to server');
+};
+
+socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (message.type === 'update') {
+        // Handle other players' positions here
+    }
+};
+
+socket.onclose = () => {
+    console.log('Disconnected from server');
+};
+
+// Send player's position to the server
+function sendPlayerPosition() {
+    const playerPosition = {
+        type: 'update',
+        position: player.position,
+        rotation: player.rotation
+    };
+    socket.send(JSON.stringify(playerPosition));
+}
+
+// Send player's position periodically
+setInterval(sendPlayerPosition, 100);
